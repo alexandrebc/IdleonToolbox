@@ -19,7 +19,7 @@ import {
 import React, { Fragment, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { AppContext } from 'components/common/context/AppProvider';
 import styled from '@emotion/styled';
-import { cleanUnderscore, growth, notateNumber, pascalCase, prefix } from 'utility/helpers';
+import { cleanUnderscore, commaNotation, growth, notateNumber, pascalCase, prefix } from 'utility/helpers';
 import HtmlTooltip from 'components/Tooltip';
 import { NextSeo } from 'next-seo';
 import {
@@ -31,7 +31,7 @@ import {
   isPrismaBubble,
   liquidsIndex
 } from '@parsers/alchemy';
-import { Breakdown } from '@components/common/styles';
+import { Breakdown } from '@components/common/Breakdown/Breakdown';
 import MenuItem from '@mui/material/MenuItem';
 import { useRouter } from 'next/router';
 import { useLocalStorage } from '@mantine/hooks';
@@ -187,9 +187,11 @@ const Bubbles = () => {
                       <Typography variant="body2">
                         {upgradeableBubbles.upgradeableBubblesAmount} bubbles will upgrade ({upgradeableBubbles.minLevel} - {upgradeableBubbles.maxLevel} LVs)
                       </Typography>
-                      <HtmlTooltip title={<Breakdown breakdown={upgradeableBubbles?.breakdown} />}>
-                        <IconInfoCircleFilled style={{ flexShrink: 0 }} size={16} />
-                      </HtmlTooltip>
+                      <Breakdown data={upgradeableBubbles?.breakdown}>
+                        <Stack alignContent={'center'}>
+                          <IconInfoCircleFilled size={18} />
+                        </Stack>
+                      </Breakdown>
                     </Stack>
                     <Typography variant="body2">
                       {possibleZenithMarketBubbles?.length || 0} kruk eligible bubbles
@@ -286,7 +288,11 @@ const Bubbles = () => {
                 Fragments: {Math.floor(state?.account?.alchemy?.prismaFragments) || '0'}</Typography>
               <Stack direction={'row'} gap={1}>
                 <Typography variant={'caption'}>Prisma Multi: {notateNumber(prismaMulti?.value, 'MultiplierInfo')}x</Typography>
-                <HtmlTooltip title={<Breakdown breakdown={prismaMulti?.breakdown} notation={'ThreeDecimals'} />}><IconInfoCircleFilled size={16} /></HtmlTooltip>
+                <Breakdown data={prismaMulti?.breakdown}>
+                  <Stack alignContent={'center'}>
+                    <IconInfoCircleFilled size={18} />
+                  </Stack>
+                </Breakdown>
               </Stack>
               <Stack direction={'row'} gap={1}>
                 <Typography variant={'caption'}>Future Bubbles</Typography>
@@ -404,7 +410,7 @@ const Bubbles = () => {
                         <Stack direction={batchLayout || isSm ? 'column' : 'row'} alignItems={'center'}>
                           <Typography color={thresholdObj?.thresholdMissingLevels > 0 ? 'error.light' : ''}
                             sx={{ mr: !batchLayout ? .5 : 0 }}
-                            variant={'caption'}>{level}</Typography>
+                            variant={'caption'}>{commaNotation(level)}</Typography>
                           {showMissingLevels && thresholdObj?.thresholdMissingLevels > 0 ? <>
                             {batchLayout
                               ? <Typography
@@ -633,16 +639,11 @@ const UpgradeableBubblesList = ({ bubbles, accumulatedCost, account }) => {
                 src={`${prefix}data/Atom2.png`} alt="" /></HtmlTooltip>
             : null}
           {isZenithMarket
-            ? <HtmlTooltip title={<>
-              <Typography>Zenith Market Bubble - {dailyLevels} daily levels from Kattlekruk</Typography>
-              {dailyLevelsBreakdown && <>
-                <Divider sx={{ my: 1 }} />
-                <Breakdown breakdown={dailyLevelsBreakdown} />
-              </>}
-            </>}>
-              <img style={{ position: 'absolute', top: -10, right: lithium ? -45 : -15, width: 30, height: 30 }}
-                src={`${prefix}data/DivGod8.png`} alt="" /></HtmlTooltip>
-            : null}
+            ? <Stack sx={{ position: 'absolute', top: -10, right: lithium ? -45 : -15, width: 30, height: 30 }}>
+              <Breakdown data={dailyLevelsBreakdown}>
+                <img src={`${prefix}data/DivGod8.png`} alt="" style={{ width: 30, height: 30 }} />
+              </Breakdown>
+            </Stack> : null}
           {isGrindTime
             ? <HtmlTooltip title={`Grind Time Bubble - ${dailyLevels} daily levels from Coral Reef`}>
               <img style={{ position: 'absolute', top: -10, right: lithium ? -45 : -15, width: 30, height: 30 }}
