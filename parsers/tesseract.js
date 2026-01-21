@@ -1,6 +1,6 @@
 import { commaNotation, getFilteredPortals, lavaLog, lavaLog2, notateNumber, tryToParse } from '@utility/helpers';
-import { mapEnemiesArray, mapPortals, monsterDrops, monsters, tesseract } from '@website-data';
-import { CLASSES, getCharacterByHighestTalent, getTalentBonus } from '@parsers/talents';
+import { mapEnemiesArray, mapPortals, monsterDrops, monsters, tesseract, items } from '@website-data';
+import { CLASSES, getCharacterByHighestTalent, getTalentBonus, getHighestTalentByClass } from '@parsers/talents';
 import { getStatsFromGear } from '@parsers/items';
 import { getArcadeBonus } from '@parsers/arcade';
 import { getJewelBonus, getLabBonus } from '@parsers/lab';
@@ -126,45 +126,57 @@ export const getTesseractBonus = (account, index) => {
 }
 
 export const getWeaponBaseStats = (itemQuality) => {
+  const item = items?.["EquipmentWandsArc0"];
+  const baseStats = {
+    speed: item?.Speed,
+    weaponPower: item?.Weapon_Power,
+    uq1: item?.UQ1val,
+    uq2: item?.UQ2val,
+  };
   const pow15 = (v) => Math.pow(v, 15);
 
   // === Speed ===
-  const speedIntMax = Math.min(6, 2 + Math.floor(itemQuality / 300));
+  // Original: randomInt(-2, min(6, 2 + floor(quality/300))) * pow(randomFloat(min(.7, .4 + quality/6000), 1), 15)
   const speedIntMin = -2;
+  const speedIntMax = Math.min(6, 2 + Math.floor(itemQuality / 300));
   const speedFloatMin = Math.min(0.7, 0.4 + itemQuality / 6000);
   const speedFloatMax = 1;
-  const speedMin = Math.round(speedIntMin * pow15(speedFloatMin));
-  const speedMax = Math.round(speedIntMax * pow15(speedFloatMax));
+  const speedMin = baseStats.speed + Math.round(speedIntMin * pow15(speedFloatMin));
+  const speedMax = baseStats.speed + Math.round(speedIntMax * pow15(speedFloatMax));
 
   // === Weapon Power ===
+  // Original: randomInt(-5, 15) * pow(randomFloat(min(.92, .8 + quality/20000), 1), 15) + floor(quality/25)
   const wpIntMin = -5;
   const wpIntMax = 15;
   const wpFloatMin = Math.min(0.92, 0.8 + itemQuality / 20000);
   const wpFloatMax = 1;
   const qualityBonus = Math.floor(itemQuality / 25);
-  const wpMin = Math.round(wpIntMin * pow15(wpFloatMin) + qualityBonus);
-  const wpMax = Math.round(wpIntMax * pow15(wpFloatMax) + qualityBonus);
+  const wpMin = baseStats.weaponPower + Math.round(wpIntMin * pow15(wpFloatMin) + qualityBonus);
+  const wpMax = baseStats.weaponPower + Math.round(wpIntMax * pow15(wpFloatMax) + qualityBonus);
 
   // === UQ1val (Arcanist DMG) ===
+  // Original: randomInt(-10, 50) * pow(randomFloat(min(.92, .8 + quality/20000), 1), 15) + floor(quality/20)
   const uq1IntMin = -10;
   const uq1IntMax = 50;
   const uq1FloatMin = Math.min(0.92, 0.8 + itemQuality / 20000);
   const uq1FloatMax = 1;
   const uq1QualityBonus = Math.floor(itemQuality / 20);
-  const uq1Min = Math.round(uq1IntMin * pow15(uq1FloatMin) + uq1QualityBonus);
-  const uq1Max = Math.round(uq1IntMax * pow15(uq1FloatMax) + uq1QualityBonus);
+  const uq1Min = baseStats.uq1 + Math.round(uq1IntMin * pow15(uq1FloatMin) + uq1QualityBonus);
+  const uq1Max = baseStats.uq1 + Math.round(uq1IntMax * pow15(uq1FloatMax) + uq1QualityBonus);
 
   // === UQ2val (Extra Tachyons) ===
+  // Original: randomInt(-1, 30) * pow(randomFloat(min(.92, .8 + quality/20000), 1), 15) + floor(quality/15)
   const uq2IntMin = -1;
   const uq2IntMax = 30;
   const uq2FloatMin = Math.min(0.92, 0.8 + itemQuality / 20000);
   const uq2FloatMax = 1;
   const uq2QualityBonus = Math.floor(itemQuality / 15);
-  const uq2Min = Math.round(uq2IntMin * pow15(uq2FloatMin) + uq2QualityBonus);
-  const uq2Max = Math.round(uq2IntMax * pow15(uq2FloatMax) + uq2QualityBonus);
+  const uq2Min = baseStats.uq2 + Math.round(uq2IntMin * pow15(uq2FloatMin) + uq2QualityBonus);
+  const uq2Max = baseStats.uq2 + Math.round(uq2IntMax * pow15(uq2FloatMax) + uq2QualityBonus);
 
   return [
     { title: 'Base stats' },
+    { name: 'Speed', min: speedMin, max: speedMax },
     { name: 'Weapon Power', min: wpMin, max: wpMax },
     { name: 'Arcanist DMG', min: uq1Min, max: uq1Max },
     { name: 'Extra Tachyons', min: uq2Min, max: uq2Max }
@@ -172,25 +184,32 @@ export const getWeaponBaseStats = (itemQuality) => {
 }
 
 export const getRingBaseStats = (itemQuality) => {
+  const item = items?.["EquipmentRingsArc0"];
+  const baseStats = {
+    uq1: item?.UQ1val,
+    uq2: item?.UQ2val,
+  };
   const pow15 = (v) => Math.pow(v, 15);
 
   // === UQ1val (Arcanist ACC) ===
+  // Original: randomInt(-5, 40) * pow(randomFloat(min(.92, .8 + quality/20000), 1), 15) + floor(quality/15)
   const uq1IntMin = -5;
   const uq1IntMax = 40;
   const uq1FloatMin = Math.min(0.92, 0.8 + itemQuality / 20000);
   const uq1FloatMax = 1;
   const uq1QualityBonus = Math.floor(itemQuality / 15);
-  const uq1Min = Math.round(uq1IntMin * pow15(uq1FloatMin) + uq1QualityBonus);
-  const uq1Max = Math.round(uq1IntMax * pow15(uq1FloatMax) + uq1QualityBonus);
+  const uq1Min = baseStats.uq1 + Math.round(uq1IntMin * pow15(uq1FloatMin) + uq1QualityBonus);
+  const uq1Max = baseStats.uq1 + Math.round(uq1IntMax * pow15(uq1FloatMax) + uq1QualityBonus);
 
   // === UQ2val (Extra Tachyons) ===
+  // Original: randomInt(-1, 30) * pow(randomFloat(min(.92, .8 + quality/20000), 1), 15) + floor(quality/10)
   const uq2IntMin = -1;
   const uq2IntMax = 30;
   const uq2FloatMin = Math.min(0.92, 0.8 + itemQuality / 20000);
   const uq2FloatMax = 1;
   const uq2QualityBonus = Math.floor(itemQuality / 10);
-  const uq2Min = Math.round(uq2IntMin * pow15(uq2FloatMin) + uq2QualityBonus);
-  const uq2Max = Math.round(uq2IntMax * pow15(uq2FloatMax) + uq2QualityBonus);
+  const uq2Min = baseStats.uq2 + Math.round(uq2IntMin * pow15(uq2FloatMin) + uq2QualityBonus);
+  const uq2Max = baseStats.uq2 + Math.round(uq2IntMax * pow15(uq2FloatMax) + uq2QualityBonus);
 
   return [
     { title: 'Base stats' },
@@ -199,17 +218,17 @@ export const getRingBaseStats = (itemQuality) => {
   ]
 }
 
-export const getTesseractMapBonus = (account, character, bonusIndex) => {
-  const tesseractMapBonuses = getMaps(account, character);
+export const getTesseractMapBonus = (account, characters, character, bonusIndex) => {
+  const tesseractMapBonuses = getMaps(account, characters, character);
   const charMap = tesseractMapBonuses?.find(({ mapIndex }) => parseFloat(mapIndex) === parseFloat(character?.mapIndex));
   const bonus = charMap?.mapBonuses?.[bonusIndex]?.value;
   return bonus > 0 ? bonus : 0;
 }
-export const getMaps = (account, character) => {
+export const getMaps = (account, characters, character) => {
   const { unlockedPortals, upgrades, mapBonusRaw } = account?.tesseract;
-  const overwhelmingEnergy = getTalentBonus(character?.flatTalents, 'OVERWHELMING_ENERGY');
+  const highestOverwhelmingEnergy = getHighestTalentByClass(characters, CLASSES.Arcane_Cultist, 'OVERWHELMING_ENERGY');
 
-  const maxMapBonus = 100 * (overwhelmingEnergy - 1) + Math.min(10, calcTesseractBonus(upgrades, 58, 0))
+  const maxMapBonus = 100 * (highestOverwhelmingEnergy - 1) + Math.min(10, calcTesseractBonus(upgrades, 58, 0))
   return getFilteredPortals()?.map(({ mapIndex, mapName }) => {
     const availablePortals = mapPortals?.[mapIndex];
     const portals = availablePortals.map((_, portalIndex) => {
@@ -342,7 +361,7 @@ export const getTachyonType = (index) => {
 export const getExtraTachyon = (character, account) => {
   const upgrades = account?.tesseract?.upgrades;
   const tesseract = getTalentBonus(character?.flatTalents, 'TESSERACT');
-  const equipBonus = getStatsFromGear(character, 95, account);
+  const { value: equipBonus } = getStatsFromGear(character, 95, account);
   const arcadeBonus = getArcadeBonus(account?.arcade?.shop, 'Arcane_Tachyons')?.bonus ?? 0;
   const spelunkerObolMulti = getLabBonus(account?.lab.labBonuses, 8); // gem multi
   const jewelBonus = getJewelBonus(account?.lab.jewels, 23, spelunkerObolMulti);
@@ -378,8 +397,8 @@ export const getArcanistStats = (upgrades, totalUpgradeLevels, character, accoun
   const ghastlyPowerY = getTalentBonus(character?.flatTalents, 'GHASTLY_POWER', true);
   const goulishPower = getTalentBonus(character?.flatTalents, 'GHOULISH_POWER');
   const arcanistForm = getTalentBonus(character?.flatTalents, 'ARCANIST_FORM');
-  const equipBonus = getStatsFromGear(character, 94, account);
-  const equipBonus2 = getStatsFromGear(character, 93, account);
+  const { value: equipBonus } = getStatsFromGear(character, 94, account);
+  const { value: equipBonus2 } = getStatsFromGear(character, 93, account);
   let equipmentWeaponPower = 0;
   const bowWeaponPower = character?.equipment?.[1];
 
@@ -491,20 +510,29 @@ export const getPrismaMulti = (account) => {
 
   return {
     value,
-    breakdown: [
-      { name: 'Tesseract', value: tesseractBonus },
-      { name: 'Arcade', value: arcadeBonus },
-      { name: 'Trophy', value: trophyBonus },
-      { name: 'Palette', value: paletteBonus },
-      { name: 'Ethereal Sigils', value: sigilsBonus },
-      { name: 'Exotic Market', value: exoticMarketBonus },
-      { name: 'Legend Talent', value: legendBonus }
-    ]
+    breakdown: {
+      statName: "Prisma multi",
+      totalValue: notateNumber(value, "MultiplierInfo"),
+      categories: [
+        {
+          name: "Additive",
+          sources: [
+            { name: "Tesseract", value: tesseractBonus },
+            { name: "Arcade", value: arcadeBonus },
+            { name: "Trophy", value: trophyBonus },
+            { name: "Palette", value: paletteBonus },
+            { name: "Ethereal Sigils", value: sigilsBonus },
+            { name: "Exotic Market", value: exoticMarketBonus },
+            { name: "Legend Talent", value: legendBonus },
+          ],
+        },
+      ],
+    }
   };
 }
 
-const getUpgradeCost = ({ index, x1, x2, level, account, upgrades }) => {
-  return 3 * getMasterclassCostReduction(account)
+const getUpgradeCost = ({ index, x1, x2, level, account, upgrades, forceLegendTalent }) => {
+  return 3 * getMasterclassCostReduction(account, forceLegendTalent)
     * (1 / (1 + (calcTesseractBonus(upgrades, 49, 0)
       * lavaLog(account?.accountOptions?.[392])) / 100))
     * Math.pow(1.04, index) * (level + (x1 + level) * Math.pow(x2 + 0.01, level))
@@ -545,7 +573,7 @@ export const getOptimizedTesseractUpgrades = (character, account, category = 'da
     getUpgrades: acc => acc?.tesseract?.upgrades || [],
     getResources: acc => acc?.tesseract?.tachyons || [],
     getCurrentStats: (upgrades, char, acc) => getArcanistStats(upgrades, acc?.tesseract?.totalUpgradeLevels, char, acc),
-    getUpgradeCost: (upgrade, index, { account, upgrades }) => getUpgradeCost({ ...upgrade, index, account, upgrades }),
+    getUpgradeCost: (upgrade, index, { account, upgrades, forceLegendTalent }) => getUpgradeCost({ ...upgrade, index, account, upgrades, forceLegendTalent }),
     applyUpgrade: (upgrade, upgradesArr) => upgradesArr.map(u => u.index === upgrade.index ? {
       ...u,
       level: u.level + 1

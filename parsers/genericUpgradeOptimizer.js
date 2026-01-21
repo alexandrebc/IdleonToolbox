@@ -2,6 +2,30 @@
 // Consolidates the simulation logic for Compass, Grimoire, and Tesseract optimizers
 
 // Helper function to check if an upgrade is affordable
+
+import { getMasterclassCostReduction } from '@parsers/misc';
+
+const applyMasterClassReduction = ({ account, masterClassReduction, results }) => {
+  if (masterClassReduction <= 0) return results;
+
+  const normalMultiplier = getMasterclassCostReduction(account, false);
+  const reducedMultiplier = getMasterclassCostReduction(account, true);
+
+  return results.map((item, index) => {
+    if (index >= masterClassReduction) return item;
+
+    const baseCost = item.cost / normalMultiplier;
+    const reducedCost = baseCost * reducedMultiplier;
+
+    return {
+      ...item,
+      cost: reducedCost,
+      hadReduction: true
+    };
+  });
+};
+
+
 function isUpgradeAffordable(upgrade, cost, simulatedResources, resourceNames) {
   const resourceType = upgrade?.x3 || upgrade?.boneType;
   // Array of objects with value property
@@ -29,7 +53,8 @@ function isUpgradeAffordable(upgrade, cost, simulatedResources, resourceNames) {
     let key = null;
     if (resourceNames && resourceType !== undefined && resourceNames[resourceType] !== undefined) {
       key = resourceNames[resourceType];
-    } else if (upgrade.name && simulatedResources[upgrade.name] !== undefined) {
+    }
+    else if (upgrade.name && simulatedResources[upgrade.name] !== undefined) {
       key = upgrade.name;
     }
     if (key) {
@@ -62,7 +87,7 @@ export function getOptimizedGenericUpgrades({
                                               extraArgs = {}
                                             }) {
   // Extract onlyAffordable from extraArgs, defaulting to false
-  const { onlyAffordable = false } = extraArgs;
+  const { onlyAffordable = false, masterClassReduction = 0 } = extraArgs;
   // Deep clone upgrades and resources to avoid mutating input data
   let simulatedUpgrades = JSON.parse(JSON.stringify(getUpgrades(account)));
   let simulatedResources = JSON.parse(JSON.stringify(getResources(account)));
@@ -88,7 +113,23 @@ export function getOptimizedGenericUpgrades({
       const availableUpgrades = simulatedUpgrades.filter(upgrade => {
         if (upgrade.level >= upgrade.x4) return false;
         if (!upgrade.unlocked) return false;
-        if (onlyAffordable && !isUpgradeAffordable(upgrade, upgrade.cost, simulatedResources, resourceNames)) return false;
+        if (onlyAffordable) {
+          const cost = getUpgradeCost(upgrade, upgrade.index, {
+            account,
+            upgrades: simulatedUpgrades,
+            ...extraArgs
+          });
+          if (!isUpgradeAffordable(upgrade, cost, simulatedResources, resourceNames)) return false;
+        }
+        // If using RPH mode and this resource's RPH is 0, skip it
+        if (extraArgs.resourcePerHour) {
+          let resourceTypeKey = (extraArgs.getResourceType
+            ? extraArgs.getResourceType(upgrade)
+            : (upgrade.x3 !== undefined ? upgrade.x3 : (upgrade.name || 0)));
+          if (resourceTypeKey !== undefined && extraArgs.resourcePerHour[resourceTypeKey] === 0) {
+            return false;
+          }
+        }
         return true;
       });
       if (availableUpgrades.length === 0) break;
@@ -97,7 +138,12 @@ export function getOptimizedGenericUpgrades({
       let cheapestUpgrade = availableUpgrades[0];
       let minEffectiveCost = Infinity;
       for (const u of availableUpgrades) {
-        let effectiveCost = u.cost;
+        let effectiveCost = getUpgradeCost(u, u.index, {
+          account,
+          upgrades: simulatedUpgrades,
+          ...extraArgs
+        });
+
         if (extraArgs.resourcePerHour) {
           // Determine resource type key
           let resourceTypeKey = (extraArgs.getResourceType
@@ -109,7 +155,7 @@ export function getOptimizedGenericUpgrades({
               rph = extraArgs.resourcePerHour[resourceTypeKey];
             }
           }
-          effectiveCost = u.cost / rph;
+          effectiveCost = effectiveCost / rph;
         }
         if (effectiveCost < minEffectiveCost) {
           minEffectiveCost = effectiveCost;
@@ -121,16 +167,28 @@ export function getOptimizedGenericUpgrades({
       const idx = simulatedUpgrades.findIndex(u => u.index === cheapestUpgrade.index);
       simulatedUpgrades[idx] = { ...simulatedUpgrades[idx], level: simulatedUpgrades[idx].level + 1 };
 
+      // Get the actual cost (with master class reduction)
+      const actualCost = getUpgradeCost(cheapestUpgrade, cheapestUpgrade.index, {
+        account,
+        upgrades: simulatedUpgrades,
+
+        ...extraArgs
+      });
+
       // Optionally update resources
       if (updateResourcesAfterUpgrade && resourceNames) {
         let tempResources = JSON.parse(JSON.stringify(simulatedResources));
-        updateResourcesAfterUpgrade(tempResources, cheapestUpgrade, resourceNames, cheapestUpgrade.cost);
+        updateResourcesAfterUpgrade(tempResources, cheapestUpgrade, resourceNames, actualCost);
         simulatedResources = tempResources;
       }
 
       // Recalculate cost for all upgrades after this purchase
       simulatedUpgrades = simulatedUpgrades.map((upgrade, index) => {
-        const cost = getUpgradeCost(upgrade, index, { account, upgrades: simulatedUpgrades, ...extraArgs });
+        const cost = getUpgradeCost(upgrade, index, {
+          account,
+          upgrades: simulatedUpgrades,
+          ...extraArgs
+        });
         return { ...upgrade, cost };
       });
 
@@ -138,10 +196,11 @@ export function getOptimizedGenericUpgrades({
       results.push({
         ...cheapestUpgrade,
         level: cheapestUpgrade.level + 1,
-        cost: cheapestUpgrade.cost
+        cost: actualCost
       });
     }
-    return results;
+
+    return applyMasterClassReduction({ results, account, masterClassReduction });
   }
 
   for (let step = 0; step < maxUpgrades; step++) {
@@ -164,9 +223,20 @@ export function getOptimizedGenericUpgrades({
         const cost = getUpgradeCost(upgrade, upgrade.index, {
           account,
           upgrades: simulatedUpgrades,
-          resources: simulatedResources, ...extraArgs
+          resources: simulatedResources,
+
+          ...extraArgs
         });
         if (!isUpgradeAffordable(upgrade, cost, simulatedResources, resourceNames)) return false;
+      }
+      // If using RPH mode and this resource's RPH is 0, skip it
+      if (extraArgs.resourcePerHour) {
+        let resourceTypeKey = (extraArgs.getResourceType
+          ? extraArgs.getResourceType(upgrade)
+          : (upgrade.x3 !== undefined ? upgrade.x3 : (upgrade.name || 0)));
+        if (resourceTypeKey !== undefined && extraArgs.resourcePerHour[resourceTypeKey] === 0) {
+          return false;
+        }
       }
       return true;
     });
@@ -210,9 +280,14 @@ export function getOptimizedGenericUpgrades({
         };
       });
 
-      // Calculate total efficiency
+      // Calculate total efficiency with master class reduction
       const totalStatChange = statChanges.reduce((sum, change) => sum + change.percentChange, 0);
-      const cost = getUpgradeCost(upgrade, upgrade.index, { account, upgrades: simulatedUpgrades, ...extraArgs });
+      const cost = getUpgradeCost(upgrade, upgrade.index, {
+        account,
+        upgrades: simulatedUpgrades,
+        ...extraArgs
+      });
+
       let efficiency;
       if (extraArgs.resourcePerHour) {
         // Use getResourceType if provided for resource type key
@@ -227,7 +302,8 @@ export function getOptimizedGenericUpgrades({
         }
         const timeCost = cost / rph;
         efficiency = totalStatChange / timeCost;
-      } else {
+      }
+      else {
         efficiency = totalStatChange / cost;
       }
 
@@ -247,8 +323,10 @@ export function getOptimizedGenericUpgrades({
       const upgradeSnapshot = { ...bestUpgrade, level: bestUpgrade.level + 1 };
       const cost = getUpgradeCost(bestUpgrade, bestUpgrade.index, {
         account,
+
         upgrades: simulatedUpgrades, ...extraArgs
       });
+
       results.push({
         ...upgradeSnapshot,
         efficiency: bestEfficiency,
@@ -275,14 +353,19 @@ export function getOptimizedGenericUpgrades({
 
       // Recalculate all upgrade costs after this purchase (no mutation)
       simulatedUpgrades = simulatedUpgrades.map((upgrade, index) => {
-        const cost = getUpgradeCost(upgrade, index, { account, upgrades: simulatedUpgrades, ...extraArgs });
+        const cost = getUpgradeCost(upgrade, index, {
+          account,
+          upgrades: simulatedUpgrades,
+          ...extraArgs
+        });
         return { ...upgrade, cost };
       });
-    } else {
+    }
+    else {
       // No more efficient upgrades available
       break;
     }
   }
 
-  return results;
-} 
+  return applyMasterClassReduction({ results, account, masterClassReduction });
+}

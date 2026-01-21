@@ -6,6 +6,7 @@ import {
   classFamilyBonuses,
   companions,
   deathNote,
+  generalSpelunky,
   items,
   killRoySkullShop,
   mapEnemiesArray,
@@ -14,8 +15,7 @@ import {
   ninjaExtraInfo,
   randomList,
   rawMapNames,
-  slab,
-  generalSpelunky
+  slab
 } from '@website-data';
 import { checkCharClass, CLASSES, getTalentBonus, mainStatMap, talentPagesMap } from './talents';
 import { getMealsBonusByEffectOrStat } from './cooking';
@@ -41,6 +41,44 @@ import { getArmorSetBonus } from '@parsers/misc/armorSmithy';
 import { getObolsBonus } from '@parsers/obols';
 import { getLegendTalentBonus } from '@parsers/world-7/legendTalents';
 import { getCardBonusByEffect } from '@parsers/cards';
+import { getTesseractBonus } from '@parsers/tesseract';
+import { getPaletteBonus } from '@parsers/gaming';
+import { getMinorDivinityBonus } from '@parsers/divinity';
+
+export const getDoubleStatueDrop = (account, character, characters) => {
+  const tesseractBonus = getTesseractBonus(account, 18);
+  const paletteBonus = getPaletteBonus(account, 19);
+  const kattelkrukPlayer = characters?.find(({ linkedDeity }) => linkedDeity === 8); // kattelkruk is limited to only 1 player linked.
+  const divinityMinorBonus = getMinorDivinityBonus(kattelkrukPlayer, account, 8, characters);
+  const talentBonus = getTalentBonus(character?.flatStarTalents, 'STATUE_METALLURGY');
+
+  return {
+    value: tesseractBonus + talentBonus + paletteBonus + Math.min(10, divinityMinorBonus),
+    breakdown: [
+      { name: 'Tesseract', value: tesseractBonus },
+      { name: 'Talent', value: talentBonus },
+      { name: 'Palette', value: paletteBonus },
+      { name: 'Divinity', value: Math.min(10, divinityMinorBonus) }
+    ],
+    expression: `tesseractBonus + talentBonus + paletteBonus + Math.min(10, divinityMinorBonus)`
+  };
+}
+
+export const getDoubleGoldenFoodDrop = (account, character, characters) => {
+  const tesseractBonus = getTesseractBonus(account, 30);
+  const paletteBonus = getPaletteBonus(account, 24);
+  const bigFishBonus = getAdviceFishBonus(account, 5);
+
+  return {
+    value: tesseractBonus + paletteBonus + bigFishBonus,
+    breakdown: [
+      { name: 'Tesseract', value: tesseractBonus },
+      { name: 'Palette', value: paletteBonus },
+      { name: 'Big Fish', value: bigFishBonus }
+    ],
+    expression: `tesseractBonus + paletteBonus + bigFishBonus`
+  };
+}
 
 export const getFriendBonusStats = (account = {}) => {
   const FRIEND_BONUS_NAMES = [
@@ -172,8 +210,14 @@ export const getGuaranteedCrystalMobs = (account) => {
       + (taskBonus + 4 * achievementBonus)))
 }
 
-export const getMasterclassCostReduction = (account) => {
-  return account?.accountOptions?.[480] < getLegendTalentBonus(account, 23) ? .2 : 1;
+export const getMasterclassCostReduction = (account, forceLegendTalent) => {
+  const hasBonusBundle = isBundlePurchased(account?.bundles, 'bon_p');
+  const hasLegendTalent = forceLegendTalent === undefined
+    ? account?.accountOptions?.[480] < getLegendTalentBonus(account, 23)
+    : forceLegendTalent;
+  return hasLegendTalent
+    ? (hasBonusBundle ? 0.05 : 0.2)
+    : (hasBonusBundle ? 0.25 : 1);
 }
 
 export const getLibraryBookTimes = (idleonData, characters, account) => {
@@ -186,7 +230,7 @@ export const getLibraryBookTimes = (idleonData, characters, account) => {
     }
   })
   breakpoints = [...breakpoints,
-  { breakpoint: 0, time: calcTimeToXBooks(0, 20, account, characters, idleonData) }]
+    { breakpoint: 0, time: calcTimeToXBooks(0, 20, account, characters, idleonData) }]
   return {
     bookCount,
     next: getTimeToNextBooks(bookCount, account, characters, idleonData)?.value - libTime,
@@ -233,30 +277,37 @@ export const getTimeToNextBooks = (bookCount, account, characters, idleonData) =
     superbitBonus = superbit?.totalBonus;
   }
   const math = Math.round(4 * (3600 / ((1 + mealBonus / 100)
-    * (1 + libraryBooker / 100) *
-    (1 + (5 * libraryTowerLevel
-      + bubbleBonus
-      + (vialBonus
-        + (stampBonus
-          + Math.min(30, Math.max(0, 30 * getAchievementStatus(account?.achievements, 145)))
-          + superbitBonus))) / 100)))
+      * (1 + libraryBooker / 100) *
+      (1 + (5 * libraryTowerLevel
+        + bubbleBonus
+        + (vialBonus
+          + (stampBonus
+            + Math.min(30, Math.max(0, 30 * getAchievementStatus(account?.achievements, 145)))
+            + superbitBonus))) / 100)))
     * (1 + 10 * Math.pow(bookCount, 1.4) / 100))
 
-  const breakdown = [
-    { title: 'Multiplicative' },
-    { name: '' },
-    { name: 'Meal Bonus', value: mealBonus },
-    { name: 'Atom Bonus', value: libraryBooker },
-    { name: 'Tower Bonus', value: 5 * libraryTowerLevel },
-    { name: 'Bubble Bonus', value: bubbleBonus },
-    { name: 'Vial Bonus', value: vialBonus },
-    { name: 'Stamp Bonus', value: stampBonus },
-    { name: 'Superbit Bonus', value: superbitBonus },
-    {
-      name: 'Achievement Bonus',
-      value: Math.min(30, Math.max(0, 30 * getAchievementStatus(account?.achievements, 145)))
-    }
-  ]
+  const breakdown = {
+    statName: 'Library Checkout Time',
+    totalValue: math,
+    categories: [
+      {
+        name: 'Multiplicative',
+        sources: [
+          { name: 'Meal Bonus', value: mealBonus },
+          { name: 'Atom Bonus', value: libraryBooker },
+          { name: 'Tower Bonus', value: 5 * libraryTowerLevel },
+          { name: 'Bubble Bonus', value: bubbleBonus },
+          { name: 'Vial Bonus', value: vialBonus },
+          { name: 'Stamp Bonus', value: stampBonus },
+          { name: 'Superbit Bonus', value: superbitBonus },
+          {
+            name: 'Achievement Bonus',
+            value: Math.min(30, Math.max(0, 30 * getAchievementStatus(account?.achievements, 145)))
+          }
+        ]
+      }
+    ]
+  }
   return {
     value: math,
     breakdown
@@ -322,7 +373,7 @@ export const getCurrencies = (account, idleonData, processedData) => {
     'Cosmic_Time_Candy': { min: 5, max: 500 }
   };
   const allItems = [...account?.storage?.list,
-  ...(processedData?.charactersData || [])?.map(({ inventory }) => inventory)?.flat()];
+    ...(processedData?.charactersData || [])?.map(({ inventory }) => inventory)?.flat()];
   const allCandies = allItems?.filter(({ Type } = {}) => Type === 'TIME_CANDY');
   const guaranteedCandies = allCandies?.reduce((sum, { displayName, amount }) => {
     if (specialCandy[displayName]) return sum;
@@ -364,13 +415,13 @@ export const enhanceColoTickets = (tickets, characters, account) => {
     // const amountPerDay = getAmountPerDay(npc, characters);
     const daysSincePickup = account?.accountOptions?.[npc?.daysSinceIndex];
     return [...res,
-    {
-      rawName: `TixEZ${index}`,
-      amountPerDay: 1,
-      daysSincePickup,
-      amount: tickets,
-      totalAmount: Math.min(daysSincePickup, 3)
-    }];
+      {
+        rawName: `TixEZ${index}`,
+        amountPerDay: 1,
+        daysSincePickup,
+        amount: tickets,
+        totalAmount: Math.min(daysSincePickup, 3)
+      }];
   }, [])
   return {
     allTickets,
@@ -380,7 +431,7 @@ export const enhanceColoTickets = (tickets, characters, account) => {
 
 const getKeysObject = (keys) => {
   return keys.reduce((res, keyAmount, index) => (index < 5 ? [...res,
-  { amount: keyAmount, ...keysMap[index] }] : res), []);
+    { amount: keyAmount, ...keysMap[index] }] : res), []);
 }
 
 export const enhanceKeysObject = (keysAll, characters, account) => {
@@ -427,7 +478,7 @@ export const getBundles = (idleonData) => {
 };
 
 export const isBundlePurchased = (bundles, name) => {
-  return bundles?.find(({ name: n }) => n === name);
+  return bundles?.find(({ name: n, owned }) => n === name && owned);
 }
 
 export const isArenaBonusActive = (arenaWave, waveReq, bonusNumber) => {
@@ -488,7 +539,8 @@ export const getHighestLevelOfClass = (characters, className, exactSearch) => {
   const highest = characters?.reduce((res, { level, class: cName }) => {
     if (res?.[cName]) {
       res[cName] = Math.max(res?.[cName], level);
-    } else {
+    }
+    else {
       res[cName] = level;
     }
     return res;
@@ -514,7 +566,8 @@ export const getCharacterByHighestSkillLevel = (characters, className, skillName
   if (className) {
     const allClasses = talentPagesMap?.[className];
     array = characters.filter(obj => allClasses.includes(obj.class))
-  } else {
+  }
+  else {
     array = characters;
   }
   return array.reduce((maxObj, currentObj) => {
@@ -538,7 +591,8 @@ export const calculateLeaderboard = (characters) => {
     for (const [skillName, skillLevel] of Object.entries(skillsInfo)) {
       if (!res[skillName]) {
         res[skillName] = { ...res[skillName], [name]: skillLevel };
-      } else {
+      }
+      else {
         const joined = { ...res[skillName], [name]: skillLevel };
         let lowestIndex = Object.keys(joined).length;
         res[skillName] = Object.entries(joined)
@@ -569,7 +623,8 @@ export const calculateTotalSkillsLevel = (characters) => {
     for (const [skillName, skillData] of Object.entries(skillsInfo)) {
       if (res?.[skillName]) {
         res[skillName] = { ...res[skillName], level: res[skillName].level + skillData?.level ?? 0 }
-      } else {
+      }
+      else {
         res[skillName] = { level: skillData?.level, index: skillData?.index - 1, icon: skillData?.icon };
       }
     }
@@ -618,11 +673,14 @@ export const getSkillMasteryBonusByIndex = (skills, rift, riftBonusIndex) => {
     const skillRank = getSkillRankByIndex(skills, index);
     if (riftBonusIndex === 1) {
       sum += 10 * isMasteryBonusUnlocked(rift, skillRank, Math.round(riftBonusIndex + 2));
-    } else if (riftBonusIndex === 3) {
+    }
+    else if (riftBonusIndex === 3) {
       sum += isMasteryBonusUnlocked(rift, skillRank, Math.round(riftBonusIndex + 2));
-    } else if (riftBonusIndex === 4) {
+    }
+    else if (riftBonusIndex === 4) {
       sum += 25 * isMasteryBonusUnlocked(rift, skillRank, Math.round(riftBonusIndex + 2));
-    } else if (index !== 0 && index !== 2 && index !== 3 && index !== 5 && index !== 6 && index !== 8) {
+    }
+    else if (index !== 0 && index !== 2 && index !== 3 && index !== 5 && index !== 6 && index !== 8) {
       sum += 5 * isMasteryBonusUnlocked(rift, skillRank, Math.round(riftBonusIndex + 2));
     }
     return sum;
@@ -636,9 +694,9 @@ export const getExpReq = (skillIndex, t) => {
       ? (15 + Math.pow(t, 2) + 13 * t) * Math.pow(1.225 - Math.min(0.114, (0.135 * t) / (t + 50)), t) - 26
       :
       8 === skillIndex ? (71 > t
-        ? ((10 + Math.pow(t, 2.81) + 4 * t) * Math.pow(1.117 - (0.135 * t) / (t + 5), t) - 6) * (1 + Math.pow(t, 1.72) / 300)
-        :
-        (((10 + Math.pow(t, 2.81) + 4 * t) * Math.pow(1.003, t) - 6) / 2.35) * (1 + Math.pow(t, 1.72) / 300)) :
+          ? ((10 + Math.pow(t, 2.81) + 4 * t) * Math.pow(1.117 - (0.135 * t) / (t + 5), t) - 6) * (1 + Math.pow(t, 1.72) / 300)
+          :
+          (((10 + Math.pow(t, 2.81) + 4 * t) * Math.pow(1.003, t) - 6) / 2.35) * (1 + Math.pow(t, 1.72) / 300)) :
         9 === skillIndex
           ? (15 + Math.pow(t, 1.3) + 6 * t) * Math.pow(1.17 - Math.min(0.07, (0.135 * t) / (t + 50)), t) - 26
           :
@@ -654,10 +712,11 @@ export const getGiantMobChance = (character, account) => {
   let chance;
   if (giantsAlreadySpawned < 5) {
     chance = (1 / ((100 + 50 * Math.pow(giantsAlreadySpawned + 1, 2)) * (1 + glitterbugPrayer / 100))) * (1 + (crescentShrineBonus + giantMobVial) / 100);
-  } else {
+  }
+  else {
     chance = (1 / (2 * Math.pow(giantsAlreadySpawned + 1, 1.95)
-      * (1 + glitterbugPrayer / 100)
-      * Math.pow(giantsAlreadySpawned + 1, 1.5 + giantsAlreadySpawned / 15)))
+        * (1 + glitterbugPrayer / 100)
+        * Math.pow(giantsAlreadySpawned + 1, 1.5 + giantsAlreadySpawned / 15)))
       * (1 + (crescentShrineBonus + giantMobVial) / 100);
   }
   return {
@@ -674,9 +733,8 @@ export const getGoldenFoodMulti = (character, account, characters) => {
   const familyBonus = getFamilyBonusBonus(classFamilyBonuses, 'GOLDEN_FOODS', highestLevelShaman);
   const isShaman = checkCharClass(character?.class, CLASSES.Shaman);
   const amplifiedFamilyBonus = familyBonus * (theFamilyGuy > 0 ? (1 + theFamilyGuy / 100) : 1) || 0;
-  const equipmentGoldFoodBonus = getStatsFromGear(character, 8, account);
-  const toolGoldFoodBonus = getStatsFromGear(character, 8, account, true);
-  const obolsBonus = getObolsBonus(character?.obols, bonuses?.etcBonuses?.[47]);
+  const obolsBonus = getObolsBonus(character?.obols, bonuses?.etcBonuses?.[8]);
+  const { value: gearGoldFoodBonus, newBreakdown: equipmentBonusBreakdown } = getStatsFromGear(character, 8, account);
   const hungryForGoldTalentBonus = getTalentBonus(character?.flatTalents, 'HAUNGRY_FOR_GOLD');
   const goldenAppleStamp = getStampsBonusByEffect(account, 'Effect_from_Golden_Food._Sparkle_sparkle!');
   const goldenFoodAchievement = getAchievementStatus(account?.achievements, 37);
@@ -691,57 +749,81 @@ export const getGoldenFoodMulti = (character, account, characters) => {
   const voteBonus = getVoteBonus(account, 26);
   const companionBonus = isCompanionBonusActive(account, 48) ? account?.companions?.list?.at(48)?.bonus : 0;
   const legendTalentBonus = getLegendTalentBonus(account, 25);
-  const cardBonus = getCardBonusByEffect(account?.cards, 'Gold_Food_Effect_(Passive)');
+  const cardBonus = Math.min(getCardBonusByEffect(account?.cards, 'Gold_Food_Effect_(Passive)'), 50);
 
   // select first death bringer
   const deathBringer = characters?.find((character) => checkCharClass(character?.class, CLASSES.Death_Bringer));
   const apocalypseWow = getTalentBonus(deathBringer?.flatTalents, 'APOCALYPSE_WOW');
   const apocalypses = deathBringer?.wow?.finished?.at(0) || 0;
   const armorSetBonus = getArmorSetBonus(account, 'SECRET_SET');
+  const value = (1 + armorSetBonus / 100)
+    * (Math.max(isShaman ? amplifiedFamilyBonus : familyBonus, 1)
+      + ((gearGoldFoodBonus + obolsBonus)
+        + (hungryForGoldTalentBonus
+          + (goldenAppleStamp
+            + (goldenFoodAchievement
+              + (goldenFoodBubbleBonus
+                + goldenFoodSigilBonus) + mealBonus + starSignBonus + bribeBonus + charmBonus
+              + (2 * achievementBonus + 3 * secondAchievementBonus + voteBonus + apocalypseWow * apocalypses + companionBonus + legendTalentBonus + cardBonus))))) / 100);
 
-  const breakdown = [
-    { title: 'Multiplicative' },
-    { name: '' },
-    { name: 'Armor Set', value: armorSetBonus },
-    { name: '' },
-    { title: 'Additive' },
-    { name: '' },
-    { name: 'Family Bonus', value: isShaman ? amplifiedFamilyBonus : familyBonus },
-    { name: 'The Family Guy', value: theFamilyGuy },
-    { name: 'Equipment', value: equipmentGoldFoodBonus },
-    { name: 'Tools', value: toolGoldFoodBonus },
-    { name: 'Obols', value: obolsBonus },
-    { name: 'Talent', value: hungryForGoldTalentBonus },
-    { name: 'Stamp', value: goldenAppleStamp },
-    { name: 'Achievement', value: goldenFoodAchievement },
-    { name: 'Bubble', value: goldenFoodBubbleBonus },
-    { name: 'Sigil', value: goldenFoodSigilBonus },
-    { name: 'Meal', value: mealBonus },
-    { name: 'Star Sign', value: starSignBonus },
-    { name: 'Bribe', value: bribeBonus },
-    { name: 'Charm', value: charmBonus },
-    { name: 'Achievements', value: 2 * achievementBonus + 3 * secondAchievementBonus },
-    { name: 'Vote', value: voteBonus },
-    { name: 'Apocalypse Wow', value: apocalypseWow * apocalypses },
-    { name: 'Companion', value: companionBonus },
-    { name: 'Legend Talent', value: legendTalentBonus },
-    { name: 'Card', value: cardBonus }
-  ];
+  const breakdown = {
+    statName: 'Golden food multi', // adjust if needed
+    totalValue: notateNumber(Math.max(0, 100 * (value - 1)), 'MultiplierInfo'), // your final computed value
+    categories: [
+      {
+        name: 'Multiplicative',
+        sources: [
+          {
+            name: 'Armor Set',
+            value: armorSetBonus
+          }
+        ]
+      },
+      {
+        name: 'Additive',
+        sources: [
+          {
+            name: 'Family Bonus',
+            value: isShaman ? amplifiedFamilyBonus : familyBonus
+          },
+          { name: 'The Family Guy', value: theFamilyGuy },
+
+          { name: 'Obols', value: obolsBonus },
+          { name: 'Talent', value: hungryForGoldTalentBonus },
+          { name: 'Stamp', value: goldenAppleStamp },
+          { name: 'Achievement', value: goldenFoodAchievement },
+          { name: 'Bubble', value: goldenFoodBubbleBonus },
+          { name: 'Sigil', value: goldenFoodSigilBonus },
+          { name: 'Meal', value: mealBonus },
+          { name: 'Star Sign', value: starSignBonus },
+          { name: 'Bribe', value: bribeBonus },
+          { name: 'Charm', value: charmBonus },
+          {
+            name: 'Achievements',
+            value: 2 * achievementBonus + 3 * secondAchievementBonus
+          },
+          { name: 'Vote', value: voteBonus },
+          {
+            name: 'Apocalypse Wow',
+            value: apocalypseWow * apocalypses
+          },
+          { name: 'Companion', value: companionBonus },
+          { name: 'Legend Talent', value: legendTalentBonus },
+          { name: 'Card', value: cardBonus }
+        ],
+        subSections: [
+          equipmentBonusBreakdown
+        ]
+      }
+    ]
+  };
 
   return {
-    value: (1 + armorSetBonus / 100)
-      * (Math.max(isShaman ? amplifiedFamilyBonus : familyBonus, 1)
-        + ((equipmentGoldFoodBonus + toolGoldFoodBonus + obolsBonus)
-          + (hungryForGoldTalentBonus
-            + (goldenAppleStamp
-              + (goldenFoodAchievement
-                + (goldenFoodBubbleBonus
-                  + goldenFoodSigilBonus) + mealBonus + starSignBonus + bribeBonus + charmBonus
-                + (2 * achievementBonus + 3 * secondAchievementBonus + voteBonus + apocalypseWow * apocalypses + companionBonus + legendTalentBonus + cardBonus))))) / 100),
+    value,
     breakdown,
     expression: `(1 + armorSetBonus / 100)
 * (Math.max(isShaman ? amplifiedFamilyBonus : familyBonus, 1)
-+ (equipmentGoldFoodBonus
++ (gearGoldFoodBonus
 + (hungryForGoldTalentBonus
 + (goldenAppleStamp
 + (goldenFoodAchievement
@@ -768,7 +850,7 @@ export const getGoldenFoodBonus = (foodName, character, account, characters) => 
     const beanstalkData = account?.sneaking?.beanstalkData;
     const beanstalkGoldenFoods = ninjaExtraInfo[29].split(' ').filter((str) => isNaN(str))
       .map((gFood, index) => ({ ...(items?.[gFood] || {}), active: beanstalkData?.[index] > 0, index }));
-    const beanstalkFood = beanstalkGoldenFoods?.find(({ displayName, active }) => displayName === foodName & active);
+    const beanstalkFood = beanstalkGoldenFoods?.find(({ displayName, active }) => displayName === foodName && active);
     if (!beanstalkFood) return baseBonus;
     return baseBonus + beanstalkFood?.Amount * goldenFoodMulti?.value * .05 * lavaLog(1 + 1e3 * Math.pow(10, beanstalkData?.[beanstalkFood?.index]))
       * (1 + lavaLog(1 + 1e3 * Math.pow(10, beanstalkData?.[beanstalkFood?.index])) / 2.14);
@@ -921,7 +1003,8 @@ export const getItemCapacity = (type = '', character, account, forceMaxCapacity)
       { value: allCarryStamps, name: 'All Stamps' },
       { value: starSignBonus, name: 'Star Sign' }
     ]
-  } else if ('dFish' === type) {
+  }
+  else if ('dFish' === type) {
     value = Math.floor((upgradeVaultBonus + character?.maxCarryCap?.Fishing) * (1 + (25 * gemshop) / 100) * (1 + fishCapStamps / 100) * (1 + (allCarryStamps + starSignBonus) / 100) * allCap?.value);
     breakdown = [
       ...breakdown,
@@ -933,7 +1016,8 @@ export const getItemCapacity = (type = '', character, account, forceMaxCapacity)
       { value: allCarryStamps, name: 'All Stamps' },
       { value: starSignBonus, name: 'Star Sign' }
     ]
-  } else if ('dBugs' === type) {
+  }
+  else if ('dBugs' === type) {
     value = Math.floor((upgradeVaultBonus + character?.maxCarryCap?.Bugs) * (1 + (25 * gemshop) / 100) * (1 + catchCapStamps / 100) * (1 + (allCarryStamps + starSignBonus) / 100) * allCap?.value);
     breakdown = [
       ...breakdown,
@@ -945,7 +1029,8 @@ export const getItemCapacity = (type = '', character, account, forceMaxCapacity)
       { value: allCarryStamps, name: 'All Stamps' },
       { value: starSignBonus, name: 'Star Sign' }
     ]
-  } else if ('bLog' === type || 'bLeaf' === type) {
+  }
+  else if ('bLog' === type || 'bLeaf' === type) {
     value = Math.floor((upgradeVaultBonus + character?.maxCarryCap?.Chopping) * (1 + chopCapStamps / 100) * (1 + (25 * gemshop) / 100) * (1 + (allCarryStamps + starSignBonus) / 100) * allCap?.value);
     breakdown = [
       ...breakdown,
@@ -957,7 +1042,8 @@ export const getItemCapacity = (type = '', character, account, forceMaxCapacity)
       { value: allCarryStamps, name: 'All Stamps' },
       { value: starSignBonus, name: 'Star Sign' }
     ]
-  } else if ('cFood' === type) {
+  }
+  else if ('cFood' === type) {
     value = Math.floor((upgradeVaultBonus + character?.maxCarryCap?.Foods) * (1 + (25 * gemshop) / 100) * (1 + (allCarryStamps + starSignBonus) / 100) * allCap?.value);
     breakdown = [
       ...breakdown,
@@ -968,7 +1054,8 @@ export const getItemCapacity = (type = '', character, account, forceMaxCapacity)
       { value: allCarryStamps, name: 'All Stamps' },
       { value: starSignBonus, name: 'Star Sign' }
     ]
-  } else if ('dCritters' === type) {
+  }
+  else if ('dCritters' === type) {
     value = Math.floor((upgradeVaultBonus + character?.maxCarryCap?.Critters) * (1 + (25 * gemshop) / 100) * (1 + (allCarryStamps + starSignBonus) / 100) * allCap?.value);
     breakdown = [
       ...breakdown,
@@ -979,7 +1066,8 @@ export const getItemCapacity = (type = '', character, account, forceMaxCapacity)
       { value: allCarryStamps, name: 'All Stamps' },
       { value: starSignBonus, name: 'Star Sign' }
     ]
-  } else if ('dSouls' === type) {
+  }
+  else if ('dSouls' === type) {
     value = Math.floor((upgradeVaultBonus + character?.maxCarryCap?.Souls) * (1 + (25 * gemshop) / 100) * (1 + (allCarryStamps + starSignBonus) / 100) * allCap?.value);
     breakdown = [
       ...breakdown,
@@ -990,9 +1078,11 @@ export const getItemCapacity = (type = '', character, account, forceMaxCapacity)
       { value: allCarryStamps, name: 'All Stamps' },
       { value: starSignBonus, name: 'Star Sign' }
     ]
-  } else if ('dCurrency' === type || 'dQuest' === type || 'dStatueStone' === type) {
-    value = 999999;
-  } else if ('bCraft' === type) {
+  }
+  else if ('dCurrency' === type || 'dQuest' === type || 'dStatueStone' === type) {
+    value = 9999999;
+  }
+  else if ('bCraft' === type) {
     value = Math.floor((upgradeVaultBonus + character?.maxCarryCap?.bCraft)
       * (1 + matCapStamps / 100) * (1 + (25 * gemshop) / 100)
       * (1 + (allCarryStamps + starSignBonus) / 100) * (1 + talentBonus / 100) * allCap?.value);
@@ -1007,13 +1097,17 @@ export const getItemCapacity = (type = '', character, account, forceMaxCapacity)
       { value: talentBonus, name: 'Talent' },
       { value: starSignBonus, name: 'Star Sign' }
     ]
-  } else if ('dExpOrb' === type || 'dStone' === type || 'dFishToolkit' === type) {
-    value = 999999;
-  } else if ('fillerz' === type) {
+  }
+  else if ('dExpOrb' === type || 'dStone' === type || 'dFishToolkit' === type) {
+    value = 9999999;
+  }
+  else if ('fillerz' === type) {
     value = character?.maxCarryCap?.fillerz;
-  } else if ('d' === type.charAt(0)) {
-    value = 999999;
-  } else {
+  }
+  else if ('d' === type.charAt(0)) {
+    value = 9999999;
+  }
+  else {
     value = 2;
   }
 
@@ -1088,7 +1182,7 @@ export const getCompanions = (companionObject = {}) => {
     acquired: (ownedCompanions?.[index]?.count || 0) > 0,
     copies: ownedCompanions?.[index]?.count ?? 0,
     tradableCount: ownedCompanions?.[index]?.tradableCount ?? 0,
-    nonTradableCount: ownedCompanions?.[index]?.nonTradableCount ?? 0,
+    nonTradableCount: ownedCompanions?.[index]?.nonTradableCount ?? 0
   }))
 
   return {
@@ -1250,18 +1344,18 @@ export const getKillRoy = (idleonData, charactersData, accountData, serverVars) 
   const permanentUpgrades = killRoySkullShop?.slice(10)?.map((upgrade, i) => {
     const levelOption = permanentUpgradeLevelMap[i];
     const bonusIndex = permanentUpgradeBonusMap[i];
-    
+
     const level = levelOption !== null ? (accountData?.accountOptions?.[levelOption] ?? 0) : 0;
     const bonus = bonusIndex !== undefined ? getKillRoyShopBonus(accountData, bonusIndex) : 1;
-    
+
     // Special case: Shop 15 (Gallery) changes description when level >= 2
     let description = upgrade?.description;
     let replacementChar = '{';
-    
+
     if (i === 5 && level >= 2) {
       description = `Permanently_boosts_your_Gallery_Multiplier_by_+${(bonus / 100).toFixed(2)}x`;
     }
-    
+
     return {
       ...upgrade,
       level,
@@ -1271,7 +1365,11 @@ export const getKillRoy = (idleonData, charactersData, accountData, serverVars) 
   });
   return {
     list: deathNote.map((monster) => {
-      const monsterWithIcon = { ...monster, icon: `Mface${monsters?.[monster.rawName].MonsterFace}`, name: monsters?.[monster.rawName]?.Name };
+      const monsterWithIcon = {
+        ...monster,
+        icon: `Mface${monsters?.[monster.rawName].MonsterFace}`,
+        name: monsters?.[monster.rawName]?.Name
+      };
       return killRoyKills?.[monster.rawName] ? ({
         ...monsterWithIcon,
         killRoyKills: killRoyKills?.[monster.rawName] ?? 0
@@ -1364,18 +1462,21 @@ export const getKillRoyClasses = (rooms, account, serverVars, ignoreSkipConditio
       const baseIndex = Math.floor(random / monsterList.length);
       const monsterIndex = Math.round(random - baseIndex * monsterList.length);
       monstersList.push(monsterList[monsterIndex]);
-    } else {
+    }
+    else {
       if (random < 400 && unlockedMap) {
         const monsterList = randomList[72].split(' ');
         const baseIndex = Math.floor(random / monsterList.length);
         const monsterIndex = Math.round(random - baseIndex * monsterList.length);
         monstersList.push(monsterList[monsterIndex])
-      } else if (random < 500 && account?.summoning?.summoningStuff?.[2] >= 4) {
+      }
+      else if (random < 500 && account?.summoning?.summoningStuff?.[2] >= 4) {
         const monsterList = randomList[99].split(' ');
         const baseIndex = Math.floor(random / monsterList.length);
         const monsterIndex = Math.round(random - baseIndex * monsterList.length);
         monstersList.push(monsterList[monsterIndex]);
-      } else {
+      }
+      else {
         const monsterList = randomList[Math.round(69 + i)].split(' ');
         const baseIndex = Math.floor(random / monsterList.length);
         const monsterIndex = Math.round(random - baseIndex * monsterList.length);
@@ -1387,7 +1488,9 @@ export const getKillRoyClasses = (rooms, account, serverVars, ignoreSkipConditio
     return {
       monsters: monstersList.map((mapName) => monsters[mapEnemiesArray[rawMapNames.indexOf(mapName)]]),
       classes: classes.map((classIndex) => ({
-        className: classIndex === 0 ? CLASSES.Beginner : classIndex === 1 ? CLASSES.Warrior : classIndex === 2 ? CLASSES.Archer : CLASSES.Mage,
+        className: classIndex === 0 ? CLASSES.Beginner : classIndex === 1 ? CLASSES.Warrior : classIndex === 2
+          ? CLASSES.Archer
+          : CLASSES.Mage,
         classIndex: classIndex === 0 ? 1 : classIndex === 1 ? 6 : classIndex === 2 ? 18 : 30
       })),
       date: Math.floor((baseSeed + iteration - 1) * 604800 * 1000)
@@ -1395,7 +1498,9 @@ export const getKillRoyClasses = (rooms, account, serverVars, ignoreSkipConditio
   }
 
   return classes.map((classIndex) => {
-    return classIndex === 0 ? CLASSES.Beginner : classIndex === 1 ? CLASSES.Warrior : classIndex === 2 ? CLASSES.Archer : CLASSES.Mage
+    return classIndex === 0 ? CLASSES.Beginner : classIndex === 1 ? CLASSES.Warrior : classIndex === 2
+      ? CLASSES.Archer
+      : CLASSES.Mage
   });
 }
 
